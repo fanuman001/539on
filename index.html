@@ -1,149 +1,48 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Julia 彩券行管理系統 v3</title>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <style>
-        :root { --red: #d32f2f; --blue: #0288d1; --green: #2e7d32; }
-        body { font-family: sans-serif; background: #f8f9fa; padding: 10px; max-width: 600px; margin: auto; }
-        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; }
-        h3 { border-left: 4px solid var(--red); padding-left: 10px; margin-top: 0; }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th, td { border: 1px solid #eee; padding: 8px; text-align: center; }
-        th { background: #f1f3f4; }
-        .original { text-decoration: line-through; color: #999; font-size: 0.8em; }
-        .current { color: var(--blue); font-weight: bold; display: block; }
-        .btn { padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 5px; }
-        .btn-blue { background: var(--blue); color: white; }
-        .btn-green { background: var(--green); color: white; }
-        .stats-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; }
-        .warn { color: var(--red); font-weight: bold; font-size: 0.8em; }
-        input, select { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-    </style>
-</head>
-<body>
+<script>
+    const SUPABASE_URL = '你的_URL';
+    const SUPABASE_KEY = '你的_KEY';
+    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    <h3>🧧 實時工時統計 (多者休息)</h3>
-    <div class="card" id="statsArea">載入中...</div>
-
-    <h3>📅 實時班表 (2/14-2/22)</h3>
-    <div class="card" id="scheduleArea" style="overflow-x: auto;">載入班表中...</div>
-
-    <h3>🔄 手動修正 / 換班登記</h3>
-    <div class="card">
-        <label>選擇日期</label>
-        <input type="date" id="opDate" value="2026-02-14">
-        
-        <label>針對誰的操作？</label>
-        <select id="targetName">
-            <option value="Ora">Ora (B)</option>
-            <option value="Eva">Eva (C)</option>
-            <option value="James">James (D)</option>
-        </select>
-
-        <div style="display: flex; gap: 10px;">
-            <button class="btn btn-blue" onclick="handleSwap()">更換此日班次</button>
-            <button class="btn btn-green" onclick="handleAdjustHours()">修正/增加時數</button>
-        </div>
-        <input type="number" id="adjHours" placeholder="輸入時數 (如 1.5 或 -2)" style="margin-top:10px;">
-        <p style="font-size: 0.8em; color: #666;">* 換班請選日期與人；修正時數請輸入正負值。</p>
-    </div>
-
-    <script>
-        const SUPABASE_URL = '你的_URL';
-        const SUPABASE_KEY = '你的_KEY';
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-        async function refreshData() {
-            await loadStats();
-            await loadSchedule();
-        }
-
-        // 載入累計工時
-        async function loadStats() {
-            const { data, error } = await supabase.from('work_logs').select('name, duration');
-            if (error) return;
-
-            const sum = { Ora: 0, Eva: 0, James: 0 };
-            data.forEach(d => sum[d.name] += d.duration);
-
-            const sorted = Object.entries(sum).sort((a,b) => b[1] - a[1]);
-            const maxVal = sorted[0][1];
-
-            let html = "";
-            for (let [name, hrs] of Object.entries(sum)) {
-                let isMax = (hrs === maxVal && hrs > 0);
-                html += `<div class="stats-row">
-                    <span><b>${name}</b></span>
-                    <span>${hrs.toFixed(1)} hrs ${isMax ? '<span class="warn">⚠️ 過勞，下次優先休息</span>' : ''}</span>
-                </div>`;
-            }
-            document.getElementById('statsArea').innerHTML = html;
-        }
-
-        // 載入動態班表
-        async function loadSchedule() {
-            const { data: base } = await supabase.from('base_schedule').select('*').order('work_date');
-            const { data: swaps } = await supabase.from('swap_logs').select('*');
+    async function loadSchedule() {
+        const area = document.getElementById('scheduleArea');
+        try {
+            // 測試連線
+            const { data: base, error: baseError } = await supabase.from('base_schedule').select('*').order('work_date');
             
-            if (!base) {
-                document.getElementById('scheduleArea').innerHTML = "資料庫無預設班表資料。";
+            if (baseError) {
+                area.innerHTML = `<p style="color:red">讀取失敗：${baseError.message}</p>`;
                 return;
             }
+
+            if (!base || base.length === 0) {
+                area.innerHTML = `<p style="color:orange">資料庫裡沒有班表資料，請確認 SQL 是否執行成功。</p>`;
+                return;
+            }
+
+            const { data: swaps } = await supabase.from('swap_logs').select('*');
 
             let html = '<table><tr><th>日期</th><th>早班</th><th>晚班</th></tr>';
             base.forEach(b => {
                 let daySwaps = swaps ? swaps.filter(s => s.work_date === b.work_date) : [];
                 
-                // 處理早班名單
+                // 早班邏輯
                 let mShift = b.morning_shift;
                 let mSwap = daySwaps.find(s => s.original_owner === mShift);
-                let mDisplay = mSwap ? `<span class="original">${mShift}</span><span class="current">${mSwap.new_name}</span>` : mShift;
+                let mDisplay = mSwap ? `<span class="original">${mShift}</span> → <b style="color:blue">${mSwap.new_name}</b>` : mShift;
 
-                // 處理晚班名單
+                // 晚班邏輯
                 let eDisplay = b.evening_shift.map(p => {
                     let eSwap = daySwaps.find(s => s.original_owner === p);
-                    return eSwap ? `<span class="original">${p}</span><span class="current">${eSwap.new_name}</span>` : p;
-                }).join('<br>');
+                    return eSwap ? `<span class="original">${p}</span> → <b style="color:blue">${eSwap.new_name}</b>` : p;
+                }).join(' / ');
 
-                html += `<tr><td>${b.work_date.slice(5)}</td><td>Julia+${mDisplay}</td><td>${eDisplay}</td></tr>`;
+                html += `<tr><td>${b.work_date.split('-')[1]}/${b.work_date.split('-')[2]}</td><td>Julia+${mDisplay}</td><td>${eDisplay}</td></tr>`;
             });
             html += '</table>';
-            document.getElementById('scheduleArea').innerHTML = html;
+            area.innerHTML = html;
+        } catch (err) {
+            area.innerHTML = `<p style="color:red">程式執行出錯：${err.message}</p>`;
         }
-
-        // 處理換班
-        async function handleSwap() {
-            const date = document.getElementById('opDate').value;
-            const original = prompt("請輸入被換掉的人名 (Ora/Eva/James):");
-            const newName = document.getElementById('targetName').value;
-            if(!original || !newName) return;
-
-            await supabase.from('swap_logs').insert([{ work_date: date, original_owner: original, new_name: newName }]);
-            alert("班表已更新");
-            refreshData();
-        }
-
-        // 手動修正工時 (核心新功能)
-        async function handleAdjustHours() {
-            const name = document.getElementById('targetName').value;
-            const hrs = parseFloat(document.getElementById('adjHours').value);
-            if(isNaN(hrs)) return alert("請輸入正確數字");
-
-            const { error } = await supabase.from('work_logs').insert([
-                { name: name, duration: hrs, note: '手動修正工時' }
-            ]);
-
-            if(!error) {
-                alert(`${name} 的工時已修正 ${hrs} 小時`);
-                document.getElementById('adjHours').value = "";
-                refreshData();
-            }
-        }
-
-        refreshData();
-    </script>
-</body>
-</html>
+    }
+    loadSchedule();
+</script>
