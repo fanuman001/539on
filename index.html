@@ -3,137 +3,147 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>彩券行工時管理系統</title>
+    <title>彩券行公平排班系統</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; max-width: 600px; margin: auto; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h2, h3 { color: #d32f2f; text-align: center; }
-        select, button, input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #ddd; font-size: 16px; }
-        button { background: #d32f2f; color: white; border: none; cursor: pointer; font-weight: bold; }
-        button.secondary { background: #0288d1; }
-        .stats { display: flex; justify-content: space-between; background: #eee; padding: 10px; border-radius: 8px; font-size: 14px; }
-        .status-on { color: #2e7d32; font-weight: bold; text-align: center; }
+        :root { --primary: #d32f2f; --secondary: #0288d1; --warn: #f57c00; }
+        body { font-family: sans-serif; background: #f4f7f6; padding: 15px; max-width: 800px; margin: auto; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { border: 1px solid #eee; padding: 8px; text-align: center; }
+        th { background: #f8f9fa; }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-clockin { background: var(--primary); color: white; }
+        .btn-clockout { background: var(--secondary); color: white; }
+        .high-workload { background: #ffebee; border: 1px solid var(--primary); color: var(--primary); padding: 5px; border-radius: 4px; font-weight: bold; }
+        .user-status { font-size: 1.2em; text-align: center; margin: 10px 0; color: #333; }
+        .flex-row { display: flex; align-items: center; justify-content: space-between; }
     </style>
 </head>
 <body>
 
-    <h2>🧧 彩券行工時系統</h2>
-    
+    <h2>🧧 Julia 彩券行公平工時系統</h2>
+
     <div class="card">
-        <h3>身分登入</h3>
-        <select id="userSelect">
-            <option value="">-- 我是誰？ --</option>
-            <option value="Ora">姊姊 Ora (B)</option>
-            <option value="Eva">姊姊 Eva (C)</option>
-            <option value="James">我 James (D)</option>
+        <select id="userSelect" style="width:100%; padding:10px;">
+            <option value="">-- 請選擇您的身分 --</option>
+            <option value="Ora">Ora (B)</option>
+            <option value="Eva">Eva (C)</option>
+            <option value="James">James (D)</option>
         </select>
-        <p id="currentUserDisplay" class="status-on"></p>
+        <div id="currentUserDisplay" class="user-status">請先登入</div>
+        <div class="btn-group">
+            <button class="btn-clockin" onclick="handleClockIn()">開始上班</button>
+            <button class="btn-clockout" onclick="handleClockOut()">結束下班</button>
+        </div>
+        <p id="shiftStatus" style="text-align:center; font-size:0.9em;"></p>
     </div>
 
     <div class="card">
-        <h3>實時打卡</h3>
-        <button onclick="handleClockIn()">現在上班</button>
-        <button class="secondary" onclick="handleClockOut()">現在下班</button>
-        <p id="shiftStatus"></p>
-    </div>
-
-    <div class="card">
-        <h3>臨時代班記錄</h3>
-        <label>原定誰上班？</label>
-        <select id="originalPerson">
-            <option value="Ora">Ora</option>
-            <option value="Eva">Eva</option>
-            <option value="James">James</option>
-        </select>
-        <label>代班時數 (小時)</label>
-        <input type="number" id="manualHours" placeholder="例如：2.5">
-        <button onclick="handleManualLog()">提交代班工時</button>
-    </div>
-
-    <div class="card">
-        <h3>工時累計 (公平性檢查)</h3>
+        <h3>⚖️ 工時累計與公平性建議</h3>
         <div id="statsArea">載入中...</div>
+        <p style="font-size:0.8em; color: #666;">* 系統會根據累計時數，建議誰應該優先休息。</p>
+    </div>
+
+    <div class="card">
+        <h3>📅 2/14-2/22 原訂排班 (參考)</h3>
+        <div id="baseSchedule" style="max-height: 200px; overflow-y: auto;"></div>
+    </div>
+
+    <div class="card">
+        <h3>🔄 臨時請假/代班登記</h3>
+        <label>原訂是誰的班？</label>
+        <select id="originalOwner"><option value="Ora">Ora</option><option value="Eva">Eva</option><option value="James">James</option></select>
+        <label>代班時數</label>
+        <input type="number" id="manualHours" placeholder="小時 (例如 1.5)" style="width:95%; padding:10px; margin:5px 0;">
+        <button onclick="handleManualLog()" style="width:100%; background:#4caf50; color:white;">提交代班時數</button>
     </div>
 
     <script>
-        // --- Supabase 設定 (請替換成你的 URL 和 Key) ---
-        const SUPABASE_URL = '你的_SUPABASE_URL';
-        const SUPABASE_KEY = '你的_SUPABASE_ANON_KEY';
+        const SUPABASE_URL = '你的_URL';
+        const SUPABASE_KEY = '你的_KEY';
         const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        const members = ['Ora', 'Eva', 'James'];
         let startTime = null;
 
-        // 更新當前使用者
+        // 生成預排班表 (B:Ora, C:Eva, D:James)
+        function renderBaseSchedule() {
+            let html = '<table><tr><th>日期</th><th>早班</th><th>晚班</th></tr>';
+            for (let i = 0; i < 9; i++) {
+                let mIdx = i % 3;
+                let morning = members[mIdx];
+                let evening = members.filter(m => m !== morning).join('+');
+                html += `<tr><td>2/${14+i}</td><td>A+${morning}</td><td>${evening}</td></tr>`;
+            }
+            html += '</table>';
+            document.getElementById('baseSchedule').innerHTML = html;
+        }
+
         document.getElementById('userSelect').onchange = function() {
-            const user = this.value;
-            document.getElementById('currentUserDisplay').innerText = user ? `當前使用者：${user}` : "";
+            document.getElementById('currentUserDisplay').innerText = `目前操作：${this.value}`;
             loadStats();
         };
 
-        // 打卡上班
         async function handleClockIn() {
             const user = document.getElementById('userSelect').value;
-            if (!user) return alert("請先選身分！");
+            if (!user) return alert("請選身分");
             startTime = new Date();
-            document.getElementById('shiftStatus').innerText = `已於 ${startTime.toLocaleTimeString()} 上班打卡`;
+            document.getElementById('shiftStatus').innerText = `打卡成功: ${startTime.toLocaleTimeString()}`;
         }
 
-        // 打卡下班並寫入資料庫
         async function handleClockOut() {
             const user = document.getElementById('userSelect').value;
-            if (!startTime) return alert("尚未打卡上班！");
+            if (!startTime) return alert("未打卡");
+            const duration = (new Date() - startTime) / (1000 * 60 * 60);
             
-            const endTime = new Date();
-            const duration = (endTime - startTime) / (1000 * 60 * 60); // 轉小時
-
-            const { error } = await supabase.from('work_logs').insert([
-                { name: user, start_time: startTime, end_time: endTime, duration: duration }
-            ]);
-
-            if (error) alert("寫入失敗: " + error.message);
-            else {
-                alert(`辛苦了！本次工作 ${duration.toFixed(2)} 小時`);
-                startTime = null;
-                document.getElementById('shiftStatus').innerText = "";
-                loadStats();
-            }
+            await supabase.from('work_logs').insert([{ 
+                name: user, duration: duration, note: '實時打卡' 
+            }]);
+            alert(`下班成功！增加 ${duration.toFixed(2)} 小時`);
+            startTime = null;
+            loadStats();
         }
 
-        // 手動提交代班工時 (例如 James 幫 Ora 站了 2 小時)
         async function handleManualLog() {
             const realWorker = document.getElementById('userSelect').value;
+            const original = document.getElementById('originalOwner').value;
             const hours = parseFloat(document.getElementById('manualHours').value);
-            if (!realWorker || !hours) return alert("請確認身分與時數");
+            if(!realWorker || !hours) return alert("資料不全");
 
-            const { error } = await supabase.from('work_logs').insert([
-                { name: realWorker, duration: hours, note: "代班記錄" }
-            ]);
-
-            if (!error) {
-                alert("代班工時已累計！");
-                loadStats();
-            }
+            await supabase.from('work_logs').insert([{ 
+                name: realWorker, 
+                duration: hours, 
+                original_shift_owner: original,
+                is_extra_support: true,
+                note: `幫 ${original} 代班`
+            }]);
+            alert("代班已記錄");
+            loadStats();
         }
 
-        // 從資料庫抓取累計時數
         async function loadStats() {
-            const { data, error } = await supabase.from('work_logs').select('name, duration');
-            if (error) return;
-
+            const { data } = await supabase.from('work_logs').select('name, duration');
             const summary = { Ora: 0, Eva: 0, James: 0 };
-            data.forEach(log => {
-                if (summary[log.name] !== undefined) summary[log.name] += log.duration;
-            });
+            data?.forEach(d => summary[d.name] += d.duration);
 
-            document.getElementById('statsArea').innerHTML = `
-                <div class="stats"><span>Ora (B):</span> <b>${summary.Ora.toFixed(1)} hrs</b></div>
-                <div class="stats"><span>Eva (C):</span> <b>${summary.Eva.toFixed(1)} hrs</b></div>
-                <div class="stats"><span>James (D):</span> <b>${summary.James.toFixed(1)} hrs</b></div>
-            `;
+            const sorted = Object.entries(summary).sort((a,b) => b[1] - a[1]);
+            const maxUser = sorted[0][0];
+
+            let html = "";
+            for (let [name, hours] of Object.entries(summary)) {
+                let warning = (name === maxUser && hours > 0) ? '<span class="high-workload">⚠️ 建議下次休息</span>' : '';
+                html += `<div class="flex-row" style="margin:10px 0;">
+                            <span><b>${name}</b>: ${hours.toFixed(1)} 小時</span>
+                            ${warning}
+                         </div>`;
+            }
+            document.getElementById('statsArea').innerHTML = html;
         }
 
-        loadStats(); // 初始化載入
+        renderBaseSchedule();
+        loadStats();
     </script>
 </body>
 </html>
