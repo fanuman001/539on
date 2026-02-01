@@ -6,88 +6,108 @@
     <title>Julia 彩券行管理系統</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { font-family: sans-serif; padding: 15px; background: #f4f4f4; }
-        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
-        th { background: #eee; }
-        .original { text-decoration: line-through; color: #999; }
-        .error-msg { color: red; background: #ffdada; padding: 10px; border-radius: 5px; border: 1px solid red; }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: #f0f2f5; padding: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { color: #d32f2f; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; background: white; }
+        th, td { border: 1px solid #eee; padding: 12px; text-align: center; }
+        th { background: #d32f2f; color: white; }
+        .original { text-decoration: line-through; color: #bbb; font-size: 0.85em; }
+        .current { color: #0288d1; font-weight: bold; display: block; }
+        .error-box { background: #ffebee; color: #c62828; padding: 15px; border-radius: 8px; border: 1px solid #ef9a9a; margin-top: 20px; white-space: pre-wrap; }
+        .loading-text { text-align: center; color: #666; font-style: italic; }
     </style>
 </head>
 <body>
 
-    <h2>🧧 Julia 彩券行排班表</h2>
-
-    <div id="scheduleArea" class="card">載入中...</div>
-
-    <div id="debugArea"></div>
+    <div class="card">
+        <h2>🧧 Julia 彩券行實時班表</h2>
+        <div id="scheduleArea">
+            <p class="loading-text">⌛ 正在連線至資料庫，請稍候...</p>
+        </div>
+    </div>
 
     <script>
-        // ⚠️ 請務必檢查這裡的 URL 和 Key 兩端有沒有多出空格
-        const SUPABASE_URL = '你的_URL';
+        // 1. 請在此處填入你的真實資訊
+        const SUPABASE_URL = '你的_URL'; 
         const SUPABASE_KEY = '你的_KEY';
 
-        // 檢查是否填寫了 URL
-        if (SUPABASE_URL === '你的_URL') {
-            document.getElementById('scheduleArea').innerHTML = "<p class='error-msg'>錯誤：你還沒填寫 Supabase 的 URL！</p>";
-        }
-
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-        async function loadSchedule() {
+        async function startApp() {
             const area = document.getElementById('scheduleArea');
+
+            // 安全檢查：是否忘記填 Key
+            if (SUPABASE_URL.includes('你的_URL')) {
+                area.innerHTML = '<div class="error-box">❌ 偵測到未填寫 Supabase URL。請修改程式碼中的 URL 與 Key。</div>';
+                return;
+            }
+
             try {
-                // 1. 抓取預設班表
+                const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+                // 2. 抓取預設班表 (base_schedule)
                 const { data: base, error: baseError } = await supabase
                     .from('base_schedule')
                     .select('*')
-                    .order('work_date');
-                
-                if (baseError) throw baseError;
+                    .order('work_date', { ascending: true });
 
-                if (!base || base.length === 0) {
-                    area.innerHTML = "<p style='color:orange'>資料庫是空的，請執行之前的 SQL 寫入資料。</p>";
-                    return;
-                }
+                if (baseError) throw new Error(`讀取預設班表失敗: ${baseError.message}`);
 
-                // 2. 抓取換班紀錄
+                // 3. 抓取換班紀錄 (swap_logs)
                 const { data: swaps, error: swapError } = await supabase
                     .from('swap_logs')
                     .select('*');
 
-                // 3. 畫出表格
-                let html = '<table><tr><th>日期</th><th>早班</th><th>晚班</th></tr>';
-                base.forEach(b => {
-                    let daySwaps = swaps ? swaps.filter(s => s.work_date === b.work_date) : [];
-                    
-                    // 早班邏輯
-                    let mShift = b.morning_shift;
-                    let mSwap = daySwaps.find(s => s.original_owner === mShift);
-                    let mDisplay = mSwap ? `<span class="original">${mShift}</span> → <b style="color:blue">${mSwap.new_name}</b>` : mShift;
+                if (swapError) console.warn("換班紀錄抓取失敗，將顯示原始班表");
 
-                    // 晚班邏輯
-                    let eDisplay = b.evening_shift.map(p => {
-                        let eSwap = daySwaps.find(s => s.original_owner === p);
-                        return eSwap ? `<span class="original">${p}</span> → <b style="color:blue">${eSwap.new_name}</b>` : p;
+                if (!base || base.length === 0) {
+                    area.innerHTML = '<div class="error-box">⚠️ 資料庫內無資料！<br>請確認是否已在 SQL Editor 執行過 INSERT 指令。</div>';
+                    return;
+                }
+
+                // 4. 渲染表格
+                let html = '<table><thead><tr><th>日期</th><th>早班 (08-15)</th><th>晚班 (15-22)</th></tr></thead><tbody>';
+                
+                base.forEach(row => {
+                    const date = row.work_date;
+                    const daySwaps = swaps ? swaps.filter(s => s.work_date === date) : [];
+
+                    // 處理早班邏輯
+                    let mName = row.morning_shift;
+                    let mSwap = daySwaps.find(s => s.original_owner === mName);
+                    let mFinal = mSwap ? `<span class="original">${mName}</span><span class="current">${mSwap.new_name}</span>` : mName;
+
+                    // 處理晚班邏輯 (Array)
+                    let eList = row.evening_shift.map(name => {
+                        let eSwap = daySwaps.find(s => s.original_owner === name);
+                        return eSwap ? `<span class="original">${name}</span><span class="current">${eSwap.new_name}</span>` : name;
                     }).join('<br>');
 
-                    html += `<tr><td>${b.work_date.slice(5)}</td><td>Julia+${mDisplay}</td><td>${eDisplay}</td></tr>`;
+                    html += `<tr>
+                        <td>${date.split('-')[1]}/${date.split('-')[2]}</td>
+                        <td><b>Julia</b> + ${mFinal}</td>
+                        <td>${eList}</td>
+                    </tr>`;
                 });
-                html += '</table>';
+
+                html += '</tbody></table>';
                 area.innerHTML = html;
 
             } catch (err) {
-                console.error(err);
-                area.innerHTML = `<div class="error-msg">
-                    <strong>讀取失敗：</strong><br>
-                    ${err.message}<br><br>
-                    <small>請檢查 Supabase 的 RLS 權限是否已關閉。</small>
+                // 將錯誤訊息直接顯示在網頁上，方便除錯
+                area.innerHTML = `<div class="error-box">
+<strong>🚨 系統發生錯誤</strong>
+1. 請檢查 Supabase URL/Key 是否正確
+2. 請確認資料表 'base_schedule' 是否存在
+3. 請確認 RLS 權限是否已關閉 (Disable RLS)
+
+錯誤詳情：
+${err.message}
                 </div>`;
             }
         }
 
-        loadSchedule();
+        // 啟動程式
+        startApp();
     </script>
 </body>
 </html>
