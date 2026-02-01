@@ -1,48 +1,93 @@
-<script>
-    const SUPABASE_URL = '你的_URL';
-    const SUPABASE_KEY = '你的_KEY';
-    const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Julia 彩券行管理系統</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: sans-serif; padding: 15px; background: #f4f4f4; }
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+        th { background: #eee; }
+        .original { text-decoration: line-through; color: #999; }
+        .error-msg { color: red; background: #ffdada; padding: 10px; border-radius: 5px; border: 1px solid red; }
+    </style>
+</head>
+<body>
 
-    async function loadSchedule() {
-        const area = document.getElementById('scheduleArea');
-        try {
-            // 測試連線
-            const { data: base, error: baseError } = await supabase.from('base_schedule').select('*').order('work_date');
-            
-            if (baseError) {
-                area.innerHTML = `<p style="color:red">讀取失敗：${baseError.message}</p>`;
-                return;
-            }
+    <h2>🧧 Julia 彩券行排班表</h2>
 
-            if (!base || base.length === 0) {
-                area.innerHTML = `<p style="color:orange">資料庫裡沒有班表資料，請確認 SQL 是否執行成功。</p>`;
-                return;
-            }
+    <div id="scheduleArea" class="card">載入中...</div>
 
-            const { data: swaps } = await supabase.from('swap_logs').select('*');
+    <div id="debugArea"></div>
 
-            let html = '<table><tr><th>日期</th><th>早班</th><th>晚班</th></tr>';
-            base.forEach(b => {
-                let daySwaps = swaps ? swaps.filter(s => s.work_date === b.work_date) : [];
-                
-                // 早班邏輯
-                let mShift = b.morning_shift;
-                let mSwap = daySwaps.find(s => s.original_owner === mShift);
-                let mDisplay = mSwap ? `<span class="original">${mShift}</span> → <b style="color:blue">${mSwap.new_name}</b>` : mShift;
+    <script>
+        // ⚠️ 請務必檢查這裡的 URL 和 Key 兩端有沒有多出空格
+        const SUPABASE_URL = '你的_URL';
+        const SUPABASE_KEY = '你的_KEY';
 
-                // 晚班邏輯
-                let eDisplay = b.evening_shift.map(p => {
-                    let eSwap = daySwaps.find(s => s.original_owner === p);
-                    return eSwap ? `<span class="original">${p}</span> → <b style="color:blue">${eSwap.new_name}</b>` : p;
-                }).join(' / ');
-
-                html += `<tr><td>${b.work_date.split('-')[1]}/${b.work_date.split('-')[2]}</td><td>Julia+${mDisplay}</td><td>${eDisplay}</td></tr>`;
-            });
-            html += '</table>';
-            area.innerHTML = html;
-        } catch (err) {
-            area.innerHTML = `<p style="color:red">程式執行出錯：${err.message}</p>`;
+        // 檢查是否填寫了 URL
+        if (SUPABASE_URL === '你的_URL') {
+            document.getElementById('scheduleArea').innerHTML = "<p class='error-msg'>錯誤：你還沒填寫 Supabase 的 URL！</p>";
         }
-    }
-    loadSchedule();
-</script>
+
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function loadSchedule() {
+            const area = document.getElementById('scheduleArea');
+            try {
+                // 1. 抓取預設班表
+                const { data: base, error: baseError } = await supabase
+                    .from('base_schedule')
+                    .select('*')
+                    .order('work_date');
+                
+                if (baseError) throw baseError;
+
+                if (!base || base.length === 0) {
+                    area.innerHTML = "<p style='color:orange'>資料庫是空的，請執行之前的 SQL 寫入資料。</p>";
+                    return;
+                }
+
+                // 2. 抓取換班紀錄
+                const { data: swaps, error: swapError } = await supabase
+                    .from('swap_logs')
+                    .select('*');
+
+                // 3. 畫出表格
+                let html = '<table><tr><th>日期</th><th>早班</th><th>晚班</th></tr>';
+                base.forEach(b => {
+                    let daySwaps = swaps ? swaps.filter(s => s.work_date === b.work_date) : [];
+                    
+                    // 早班邏輯
+                    let mShift = b.morning_shift;
+                    let mSwap = daySwaps.find(s => s.original_owner === mShift);
+                    let mDisplay = mSwap ? `<span class="original">${mShift}</span> → <b style="color:blue">${mSwap.new_name}</b>` : mShift;
+
+                    // 晚班邏輯
+                    let eDisplay = b.evening_shift.map(p => {
+                        let eSwap = daySwaps.find(s => s.original_owner === p);
+                        return eSwap ? `<span class="original">${p}</span> → <b style="color:blue">${eSwap.new_name}</b>` : p;
+                    }).join('<br>');
+
+                    html += `<tr><td>${b.work_date.slice(5)}</td><td>Julia+${mDisplay}</td><td>${eDisplay}</td></tr>`;
+                });
+                html += '</table>';
+                area.innerHTML = html;
+
+            } catch (err) {
+                console.error(err);
+                area.innerHTML = `<div class="error-msg">
+                    <strong>讀取失敗：</strong><br>
+                    ${err.message}<br><br>
+                    <small>請檢查 Supabase 的 RLS 權限是否已關閉。</small>
+                </div>`;
+            }
+        }
+
+        loadSchedule();
+    </script>
+</body>
+</html>
