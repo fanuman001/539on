@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>彩券行人力調度系統</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; background: #f8f9fa; padding: 15px; color: #333; }
+        h2 { text-align: center; color: #d32f2f; margin-bottom: 5px; }
+        .subtitle { text-align: center; color: #666; font-size: 0.9em; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #eee; padding: 12px 10px; text-align: center; }
+        th { background: #d32f2f; color: white; }
+        .boss { color: #d32f2f; font-weight: bold; }
+        .shift-box { margin-top: 20px; background: #fff; padding: 15px; border-radius: 8px; border-left: 5px solid #0288d1; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        select, button { padding: 8px; margin: 5px; border-radius: 4px; border: 1px solid #ccc; font-size: 16px; }
+        button { background: #0288d1; color: white; border: none; cursor: pointer; }
+        button:hover { background: #01579b; }
+        #resultArea { margin-top: 10px; font-weight: bold; color: #2e7d32; padding: 10px; background: #e8f5e9; border-radius: 4px; display: none; }
+    </style>
+</head>
+<body>
+
+    <h2>🧧 彩券行春節排班</h2>
+    <div class="subtitle">2/14 - 2/22 家族分工表</div>
+
+    <div id="table-container"></div>
+
+    <div class="shift-box">
+        <h3>🚨 臨時調度工具</h3>
+        <p>如果有人臨時要請假，請選擇：</p>
+        <select id="leavePerson" onchange="updateSub()">
+            <option value="">-- 誰要請假？ --</option>
+            <option value="B (姊)">B (姊)</option>
+            <option value="C (姊)">C (姊)</option>
+            <option value="D (我)">D (我)</option>
+        </select>
+
+        <select id="leaveTime">
+            <option value="">-- 請假時段 --</option>
+            <option value="早班 (08:00-15:00)">早班 (08:00-15:00)</option>
+            <option value="晚班 (15:00-22:00)">晚班 (15:00-22:00)</option>
+            <option value="傍晚尖峰 (17:00-19:00)">傍晚尖峰 (17:00-19:00)</option>
+        </select>
+
+        <button onclick="findSubstitute()">點我找出代班人</button>
+        <div id="resultArea"></div>
+    </div>
+
+    <script>
+        const members = ['B (姊)', 'C (姊)', 'D (我)'];
+        const startDate = new Date(2026, 1, 14); 
+
+        function generateTable() {
+            let html = '<table><tr><th>日期</th><th>早班 (08-15)</th><th>晚班 (15-22)</th></tr>';
+            for (let i = 0; i < 9; i++) {
+                let date = new Date(startDate);
+                date.setDate(startDate.getDate() + i);
+                let dateStr = `${date.getMonth() + 1}/${date.getDate()} (${['日','一','二','三','四','五','六'][date.getDay()]})`;
+                let mIdx = i % 3;
+                let morning = members[mIdx];
+                let evening = members.filter(m => m !== morning).join(' + ');
+                html += `<tr><td>${dateStr}</td><td><span class="boss">A</span>+${morning}</td><td>${evening}</td></tr>`;
+            }
+            html += '</table>';
+            document.getElementById('table-container').innerHTML = html;
+        }
+
+        function findSubstitute() {
+            const leavePerson = document.getElementById('leavePerson').value;
+            const leaveTime = document.getElementById('leaveTime').value;
+            const res = document.getElementById('resultArea');
+
+            if (!leavePerson || !leaveTime) {
+                alert("請先選擇請假人和時段！");
+                return;
+            }
+
+            // 找出不在該時段名單上的人
+            let subs = members.filter(m => m !== leavePerson);
+            
+            res.style.display = "block";
+            res.innerHTML = `⚠️ 調度建議：<br>當 ${leavePerson} 請假 ${leaveTime} 時，<br>可以聯繫 <b>${subs.join(' 或 ')}</b> 支援。<br>（註：老闆 A 早上固定在場，不列入代班選項）`;
+        }
+
+        generateTable();
+    </script>
+</body>
+</html>
+
