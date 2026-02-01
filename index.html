@@ -3,61 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>彩券行公平排班系統</title>
+    <title>Julia 彩券行實時排班系統</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        :root { --primary: #d32f2f; --secondary: #0288d1; --warn: #f57c00; }
-        body { font-family: sans-serif; background: #f4f7f6; padding: 15px; max-width: 800px; margin: auto; }
-        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 15px; }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th, td { border: 1px solid #eee; padding: 8px; text-align: center; }
-        th { background: #f8f9fa; }
-        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        button { padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
-        .btn-clockin { background: var(--primary); color: white; }
-        .btn-clockout { background: var(--secondary); color: white; }
-        .high-workload { background: #ffebee; border: 1px solid var(--primary); color: var(--primary); padding: 5px; border-radius: 4px; font-weight: bold; }
-        .user-status { font-size: 1.2em; text-align: center; margin: 10px 0; color: #333; }
-        .flex-row { display: flex; align-items: center; justify-content: space-between; }
+        :root { --primary: #d32f2f; --swapped: #0288d1; }
+        body { font-family: sans-serif; background: #f0f2f5; padding: 10px; max-width: 800px; margin: auto; }
+        .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        table { width: 100%; border-collapse: collapse; background: white; }
+        th, td { border: 1px solid #eee; padding: 10px; text-align: center; }
+        .original-name { text-decoration: line-through; color: #999; font-size: 0.8em; }
+        .new-name { color: var(--swapped); font-weight: bold; display: block; }
+        .boss { color: var(--primary); font-weight: bold; }
+        .btn { padding: 10px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-swap { background: var(--swapped); color: white; width: 100%; }
+        .stats-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee; }
+        .alert { background: #fff3e0; border-left: 4px solid #ff9800; padding: 10px; font-size: 0.9em; }
     </style>
 </head>
 <body>
 
-    <h2>🧧 Julia 彩券行公平工時系統</h2>
+    <h2>🧧 Julia 彩券行動態班表</h2>
 
     <div class="card">
-        <select id="userSelect" style="width:100%; padding:10px;">
-            <option value="">-- 請選擇您的身分 --</option>
-            <option value="Ora">Ora (B)</option>
-            <option value="Eva">Eva (C)</option>
-            <option value="James">James (D)</option>
-        </select>
-        <div id="currentUserDisplay" class="user-status">請先登入</div>
-        <div class="btn-group">
-            <button class="btn-clockin" onclick="handleClockIn()">開始上班</button>
-            <button class="btn-clockout" onclick="handleClockOut()">結束下班</button>
-        </div>
-        <p id="shiftStatus" style="text-align:center; font-size:0.9em;"></p>
+        <h3>⚖️ 累計工時 (多者應休息)</h3>
+        <div id="statsArea">載入資料中...</div>
     </div>
 
     <div class="card">
-        <h3>⚖️ 工時累計與公平性建議</h3>
-        <div id="statsArea">載入中...</div>
-        <p style="font-size:0.8em; color: #666;">* 系統會根據累計時數，建議誰應該優先休息。</p>
+        <h3>📅 2/14 - 2/22 實時班表</h3>
+        <div id="scheduleContainer">載入班表中...</div>
     </div>
 
     <div class="card">
-        <h3>📅 2/14-2/22 原訂排班 (參考)</h3>
-        <div id="baseSchedule" style="max-height: 200px; overflow-y: auto;"></div>
-    </div>
-
-    <div class="card">
-        <h3>🔄 臨時請假/代班登記</h3>
-        <label>原訂是誰的班？</label>
-        <select id="originalOwner"><option value="Ora">Ora</option><option value="Eva">Eva</option><option value="James">James</option></select>
-        <label>代班時數</label>
-        <input type="number" id="manualHours" placeholder="小時 (例如 1.5)" style="width:95%; padding:10px; margin:5px 0;">
-        <button onclick="handleManualLog()" style="width:100%; background:#4caf50; color:white;">提交代班時數</button>
+        <h3>🔄 臨時更換班次 (點對點交換)</h3>
+        <input type="date" id="swapDate" value="2026-02-14">
+        <select id="whoOff"><option value="">-- 誰要請假/換走 --</option><option value="Ora">Ora</option><option value="Eva">Eva</option><option value="James">James</option></select>
+        <select id="whoOn"><option value="">-- 誰來代班/換入 --</option><option value="Ora">Ora</option><option value="Eva">Eva</option><option value="James">James</option></select>
+        <button class="btn btn-swap" onclick="handleSwap()">確認更換</button>
     </div>
 
     <script>
@@ -65,62 +47,56 @@
         const SUPABASE_KEY = '你的_KEY';
         const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        const members = ['Ora', 'Eva', 'James'];
-        let startTime = null;
-
-        // 生成預排班表 (B:Ora, C:Eva, D:James)
-        function renderBaseSchedule() {
-            let html = '<table><tr><th>日期</th><th>早班</th><th>晚班</th></tr>';
-            for (let i = 0; i < 9; i++) {
-                let mIdx = i % 3;
-                let morning = members[mIdx];
-                let evening = members.filter(m => m !== morning).join('+');
-                html += `<tr><td>2/${14+i}</td><td>A+${morning}</td><td>${evening}</td></tr>`;
-            }
-            html += '</table>';
-            document.getElementById('baseSchedule').innerHTML = html;
+        async function init() {
+            await loadSchedule();
+            await loadStats();
         }
 
-        document.getElementById('userSelect').onchange = function() {
-            document.getElementById('currentUserDisplay').innerText = `目前操作：${this.value}`;
-            loadStats();
-        };
+        async function loadSchedule() {
+            // 抓取基礎班表與換班紀錄
+            const { data: base } = await supabase.from('base_schedule').select('*').order('work_date');
+            const { data: swaps } = await supabase.from('swap_logs').select('*');
 
-        async function handleClockIn() {
-            const user = document.getElementById('userSelect').value;
-            if (!user) return alert("請選身分");
-            startTime = new Date();
-            document.getElementById('shiftStatus').innerText = `打卡成功: ${startTime.toLocaleTimeString()}`;
-        }
-
-        async function handleClockOut() {
-            const user = document.getElementById('userSelect').value;
-            if (!startTime) return alert("未打卡");
-            const duration = (new Date() - startTime) / (1000 * 60 * 60);
+            let html = '<table><tr><th>日期</th><th>早班 (08-15)</th><th>晚班 (15-22)</th></tr>';
             
-            await supabase.from('work_logs').insert([{ 
-                name: user, duration: duration, note: '實時打卡' 
-            }]);
-            alert(`下班成功！增加 ${duration.toFixed(2)} 小時`);
-            startTime = null;
-            loadStats();
+            base.forEach(item => {
+                const dateStr = item.work_date;
+                const daySwaps = swaps.filter(s => s.work_date === dateStr);
+                
+                // 處理早班顯示
+                let morningDisplay = `<span class="boss">Julia</span> + ${item.morning_shift}`;
+                daySwaps.forEach(s => {
+                    if (s.original_owner === item.morning_shift) {
+                        morningDisplay = `<span class="boss">Julia</span> + <span class="original-name">${s.original_owner}</span><span class="new-name">${s.new_name}</span>`;
+                    }
+                });
+
+                // 處理晚班顯示
+                let eveningDisplay = item.evening_shift.map(p => {
+                    const s = daySwaps.find(sw => sw.original_owner === p);
+                    return s ? `<span class="original-name">${p}</span><span class="new-name">${s.new_name}</span>` : p;
+                }).join('<br>');
+
+                html += `<tr><td>${dateStr.slice(5)}</td><td>${morningDisplay}</td><td>${eveningDisplay}</td></tr>`;
+            });
+            html += '</table>';
+            document.getElementById('scheduleContainer').innerHTML = html;
         }
 
-        async function handleManualLog() {
-            const realWorker = document.getElementById('userSelect').value;
-            const original = document.getElementById('originalOwner').value;
-            const hours = parseFloat(document.getElementById('manualHours').value);
-            if(!realWorker || !hours) return alert("資料不全");
+        async function handleSwap() {
+            const date = document.getElementById('swapDate').value;
+            const off = document.getElementById('whoOff').value;
+            const on = document.getElementById('whoOn').value;
+            if (!off || !on) return alert("請選取人員");
 
-            await supabase.from('work_logs').insert([{ 
-                name: realWorker, 
-                duration: hours, 
-                original_shift_owner: original,
-                is_extra_support: true,
-                note: `幫 ${original} 代班`
+            const { error } = await supabase.from('swap_logs').insert([{ 
+                work_date: date, original_owner: off, new_name: on 
             }]);
-            alert("代班已記錄");
-            loadStats();
+
+            if (!error) {
+                alert("換班成功！");
+                init();
+            }
         }
 
         async function loadStats() {
@@ -129,21 +105,18 @@
             data?.forEach(d => summary[d.name] += d.duration);
 
             const sorted = Object.entries(summary).sort((a,b) => b[1] - a[1]);
-            const maxUser = sorted[0][0];
+            const maxVal = sorted[0][1];
 
             let html = "";
             for (let [name, hours] of Object.entries(summary)) {
-                let warning = (name === maxUser && hours > 0) ? '<span class="high-workload">⚠️ 建議下次休息</span>' : '';
-                html += `<div class="flex-row" style="margin:10px 0;">
-                            <span><b>${name}</b>: ${hours.toFixed(1)} 小時</span>
-                            ${warning}
-                         </div>`;
+                let alertMsg = (hours === maxVal && hours > 0) ? ' ⚠️ 休息預定' : '';
+                html += `<div class="stats-item"><span>${name}</span> <span>${hours.toFixed(1)} hrs <b>${alertMsg}</b></span></div>`;
             }
             document.getElementById('statsArea').innerHTML = html;
         }
 
-        renderBaseSchedule();
-        loadStats();
+        init();
     </script>
 </body>
 </html>
+
